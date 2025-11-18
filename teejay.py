@@ -5,65 +5,92 @@ import re
 import io
 
 st.set_page_config(page_title="Stretchline Data Extractor", page_icon="📄")
-st.title("📄 Stretchline Data Extractor")
-st.write("Automatically extract Quantity, PO Number, Customer Material and EX Mill Delivery Date from Teejay PIs.")
 
-
-# --------------------------------------------------------
-
-# FUNCTION TO EXTRACT ROWS FROM A SINGLE PDF
+st.title("📄 Teejay Data Extractor")
 
 # --------------------------------------------------------
 
-def extract_rows_from_pdf(pdf_file):
+# FUNCTION TO EXTRACT ALL ROWS
 
-    all_text = ""
+# --------------------------------------------------------
+
+def extract_rows(pdf_file):
 
     with pdfplumber.open(pdf_file) as pdf:
 
-        for page in pdf.pages:
+        lines = []
 
-            page_text = page.extract_text()
+        for p in pdf.pages:
 
-            if page_text:
+            text = p.extract_text()
 
-                all_text += page_text + "\n"
+            if text:
 
-    # Clean text
+                for line in text.split("\n"):
 
-    all_text = all_text.replace(",", "")  # Remove commas in numbers to simplify
-
-    # Regex that matches the exact structure in your highlighted screenshot
-
-    pattern = re.compile(
-
-        r"(?P<qty>\d+\.\d+)\s+"
-
-        r"(?P<po>\d{10})\s+"
-
-        r"(?P<custmat>\d{10}).*?\n.*?"
-
-        r"(?P<deldate>\d{2}\.\d{2}\.\d{4})",
-
-        re.DOTALL
-
-    )
+                    lines.append(line)
 
     rows = []
 
-    for match in pattern.finditer(all_text):
+    current = {}
 
-        rows.append({
+    qty_po_mat_pattern = re.compile(
 
-            "Quantity in": match.group("qty"),
+        r"(?P<qty>\d+\.\d+)\s+(?P<po>\d{10})\s+(?P<cm>\d{10})"
 
-            "PO Number": match.group("po"),
+    )
 
-            "Customer Material": match.group("custmat"),
+    date_pattern = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
 
-            "DEL date ex mill": match.group("deldate")
+    for line in lines:
 
-        })
+        # Detect quantity + PO + customer material row
+
+        m = qty_po_mat_pattern.search(line)
+
+        if m:
+
+            # If a previous row is incomplete, push it
+
+            if current:
+
+                rows.append(current)
+
+                current = {}
+
+            current = {
+
+                "Quantity in": m.group("qty"),
+
+                "PO Number": m.group("po"),
+
+                "Customer Material": m.group("cm"),
+
+                "DEL date ex mill": ""
+
+            }
+
+            continue
+
+        # Detect delivery date later in following lines
+
+        if current:
+
+            d = date_pattern.search(line)
+
+            if d:
+
+                current["DEL date ex mill"] = d.group()
+
+                rows.append(current)
+
+                current = {}
+
+    # Safety: append last row if date was missing
+
+    if current:
+
+        rows.append(current)
 
     return pd.DataFrame(rows)
 
@@ -74,63 +101,55 @@ def extract_rows_from_pdf(pdf_file):
 
 # --------------------------------------------------------
 
-uploaded_files = st.file_uploader(
-
-    "Upload Teejay PI PDFs",
-
-    type="pdf",
-
-    accept_multiple_files=True
-
-)
+uploaded = st.file_uploader("Upload PI PDFs", accept_multiple_files=True, type="pdf")
 
 if st.button("Extract Stretchline Data"):
 
-    if not uploaded_files:
+    if not uploaded:
 
         st.warning("Please upload at least one PDF.")
 
         st.stop()
 
-    final_df = pd.DataFrame()
+    final = pd.DataFrame()
 
-    for pdf in uploaded_files:
+    for pdf in uploaded:
 
-        df = extract_rows_from_pdf(pdf)
+        df = extract_rows(pdf)
 
         df["Source File"] = pdf.name
 
-        final_df = pd.concat([final_df, df], ignore_index=True)
+        final = pd.concat([final, df], ignore_index=True)
 
-    if final_df.empty:
+    if final.empty:
 
-        st.error("❌ No valid data found. Check if the PI matches the same format.")
+        st.error("No rows detected. Check PDF format.")
 
         st.stop()
 
-    st.success("✅ Extraction complete! Download your Stretchline Data file.")
+    st.success("Extraction complete! Download your file.")
 
     # Excel output
 
-    output = io.BytesIO()
+    out = io.BytesIO()
 
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+    with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
 
-        final_df.to_excel(writer, sheet_name="Stretchline Data", index=False)
+        final.to_excel(writer, sheet_name="Stretchline Data", index=False)
 
-    output.seek(0)
+    out.seek(0)
 
     st.download_button(
 
-        label="⬇️ Download Stretchline_Data.xlsx",
+        "⬇️ Download Stretchline_Data.xlsx",
 
-        data=output,
+        data=out,
 
-        file_name="teejay_Data.xlsx",
+        file_name="Stretchline_Data.xlsx",
 
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     )
 
-    st.dataframe(final_df)
+    st.dataframe(final)
  
