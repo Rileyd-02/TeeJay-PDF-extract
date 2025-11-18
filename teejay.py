@@ -1,16 +1,21 @@
 import streamlit as st
+
 import pdfplumber
+
 import pandas as pd
+
 import re
+
 import io
 
-st.set_page_config(page_title="Stretchline Data Extractor", page_icon="📄")
+st.set_page_config(page_title="Teejay Data Extractor", page_icon="📄")
 
 st.title("📄 Teejay Data Extractor")
 
+
 # --------------------------------------------------------
 
-# FUNCTION TO EXTRACT ALL ROWS
+# FUNCTION TO EXTRACT ALL ROWS WITH DATE FIX
 
 # --------------------------------------------------------
 
@@ -32,7 +37,9 @@ def extract_rows(pdf_file):
 
     rows = []
 
-    current = {}
+    current = None
+
+    # Patterns
 
     qty_po_mat_pattern = re.compile(
 
@@ -44,19 +51,19 @@ def extract_rows(pdf_file):
 
     for line in lines:
 
-        # Detect quantity + PO + customer material row
+        # ==== 1️⃣ Detect start of a new row (QTY + PO + CUSTMAT) ====
 
         m = qty_po_mat_pattern.search(line)
 
         if m:
 
-            # If a previous row is incomplete, push it
+            # Store previous row if present
 
             if current:
 
                 rows.append(current)
 
-                current = {}
+            # Start a new row
 
             current = {
 
@@ -72,7 +79,7 @@ def extract_rows(pdf_file):
 
             continue
 
-        # Detect delivery date later in following lines
+        # ==== 2️⃣ Detect delivery date in later lines ====
 
         if current:
 
@@ -84,9 +91,11 @@ def extract_rows(pdf_file):
 
                 rows.append(current)
 
-                current = {}
+                current = None     # reset – row finished
 
-    # Safety: append last row if date was missing
+                continue
+
+    # ==== 3️⃣ Append final row if incomplete ====
 
     if current:
 
@@ -103,7 +112,7 @@ def extract_rows(pdf_file):
 
 uploaded = st.file_uploader("Upload PI PDFs", accept_multiple_files=True, type="pdf")
 
-if st.button("Extract Stretchline Data"):
+if st.button("Extract Teejay Data"):
 
     if not uploaded:
 
@@ -135,17 +144,17 @@ if st.button("Extract Stretchline Data"):
 
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
 
-        final.to_excel(writer, sheet_name="Stretchline Data", index=False)
+        final.to_excel(writer, sheet_name="Teejay Data", index=False)
 
     out.seek(0)
 
     st.download_button(
 
-        "⬇️ Download Stretchline_Data.xlsx",
+        "⬇️ Download Teejay_Data.xlsx",
 
         data=out,
 
-        file_name="Stretchline_Data.xlsx",
+        file_name="Teejay_Data.xlsx",
 
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
